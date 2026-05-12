@@ -2,8 +2,8 @@
 
 import { DEFAULT_SETTINGS, DEFAULT_UI, GameSettings, UiSettings } from "./types";
 
-const SETTINGS_KEY = "zetamac+:gameSettings";
-const UI_KEY = "zetamac+:uiSettings";
+const SETTINGS_KEY = "haste:gameSettings";
+const UI_KEY = "haste:uiSettings";
 
 export function loadGameSettings(): GameSettings {
   if (typeof window === "undefined") return DEFAULT_SETTINGS;
