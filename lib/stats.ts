@@ -189,15 +189,16 @@ export const QUINTILE_COLORS = [
   "#dc2626", // 4 slowest – red
 ];
 
-export function perSecondCumulative(
+// strict cumulative NS at each second: NS_DURATION * solvedSoFar / s.
+// 0 during the warmup before the first solve.
+export function perSecondNs(
   problems: SolvedProblem[],
   duration: number,
-): { second: number; solved: number }[] {
-  const data: { second: number; solved: number }[] = [{ second: 0, solved: 0 }];
+): { second: number; ns: number }[] {
+  const data: { second: number; ns: number }[] = [];
   for (let s = 1; s <= duration; s++) {
-    const solved = problems.filter((p) => Math.min(p.finishedAt, duration) <= s).length;
-    data.push({ second: s, solved });
+    const solvedCount = problems.filter((p) => p.finishedAt <= s).length;
+    data.push({ second: s, ns: Math.floor((NS_DURATION * solvedCount) / s) });
   }
-  if (data.length > 0) data[data.length - 1].solved = problems.length;
   return data;
 }

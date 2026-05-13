@@ -10,7 +10,7 @@ import {
   meanTime,
   ns,
   NS_DURATION,
-  perSecondCumulative,
+  perSecondNs,
   QUINTILE_COLORS,
   quintileOf,
   quintiles,
@@ -19,8 +19,8 @@ import type { Bucket } from "@/lib/stats";
 import { formatProblem } from "@/lib/problems";
 import {
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -45,13 +45,6 @@ export default function Results({
     session.totalAttempts > 0 ? session.correctAttempts / session.totalAttempts : null;
   const duration = settings.durationSec;
   const score = problems.length;
-  const cumulative = perSecondCumulative(problems, duration);
-  const linear = cumulative.map((d) => ({
-    second: d.second,
-    solved: d.solved,
-    even: (score * d.second) / duration,
-    ns: d.second > 0 ? Math.floor((NS_DURATION * d.solved) / d.second) : 0,
-  }));
 
   const grouped = groupByOp(problems);
   const opLabel: Record<Op, string> = {
@@ -65,6 +58,32 @@ export default function Results({
   // overall NS = projected score at 120s based on actual sustained pace
   // (final score / duration), not per-problem mean (which ignores idle time).
   const overallNs = duration > 0 ? Math.floor((NS_DURATION * score) / duration) : null;
+
+  const perSecond = perSecondNs(problems, duration);
+  const errorsBySecond = (() => {
+    const m = new Map<number, number>();
+    for (const p of problems) {
+      if (p.wrongAttempts <= 0) continue;
+      const s = Math.min(duration, Math.max(1, Math.ceil(p.finishedAt)));
+      m.set(s, (m.get(s) ?? 0) + p.wrongAttempts);
+    }
+    return m;
+  })();
+  const chartData = perSecond.map((d) => ({
+    second: d.second,
+    ns: d.ns,
+    even: overallNs,
+    score: problems.filter((p) => p.finishedAt <= d.second).length,
+    errors: errorsBySecond.get(d.second) ?? null,
+  }));
+
+  // Y-axis range excludes the warmup zeros so the post-warmup amplitude is
+  // legible. The line still draws warmup values — they just sit off-screen.
+  const positiveNs = chartData.map((d) => d.ns).filter((n) => n > 0);
+  const nsLower =
+    positiveNs.length > 0 ? Math.max(0, Math.min(...positiveNs) - 10) : 0;
+  const nsUpper =
+    positiveNs.length > 0 ? Math.max(...positiveNs) + 10 : 120;
   const hasBreakdown = settings.difficulty === "normal";
 
   const allSubNs = useMemo(() => {
@@ -125,7 +144,7 @@ export default function Results({
   const xTicks = (() => {
     const step = duration <= 30 ? 5 : duration <= 90 ? 10 : 15;
     const out: number[] = [];
-    for (let i = 0; i <= duration; i += step) out.push(i);
+    for (let i = step; i <= duration; i += step) out.push(i);
     if (out[out.length - 1] !== duration) out.push(duration);
     return out;
   })();
@@ -198,41 +217,99 @@ export default function Results({
         </section>
 
         <section className="card p-6 mb-6">
-          <h2 className="section-title text-lg mb-3">Solved over time</h2>
+          <h2 className="section-title text-lg mb-3">Normalised Score</h2>
           <div className="h-72">
             <ResponsiveContainer>
-              <LineChart data={linear} margin={{ top: 10, right: 24, bottom: 28, left: 16 }}>
+              <ComposedChart data={chartData} margin={{ top: 10, right: 24, bottom: 28, left: 16 }}>
                 <CartesianGrid stroke="#eee" />
                 <XAxis
                   dataKey="second"
                   type="number"
-                  domain={[0, duration]}
+                  domain={[1, duration]}
                   ticks={xTicks}
                   tickMargin={6}
                   label={{ value: "Seconds", position: "insideBottom", offset: -16 }}
                 />
                 <YAxis
+                  yAxisId="ns"
                   width={56}
                   allowDecimals={false}
+                  domain={[nsLower, nsUpper]}
                   label={{
-                    value: "Score",
+                    value: "NS",
                     angle: -90,
                     position: "insideLeft",
                     offset: 4,
                     style: { textAnchor: "middle" },
                   }}
                 />
-                <Tooltip content={<ChartTooltip />} />
+                <YAxis
+                  yAxisId="errors"
+                  orientation="right"
+                  width={44}
+                  allowDecimals={false}
+                  domain={[0, (max: number) => Math.max(1, max)]}
+                  label={{
+                    value: "Errors",
+                    angle: 90,
+                    position: "insideRight",
+                    offset: 4,
+                    style: { textAnchor: "middle" },
+                  }}
+                />
+                <Tooltip
+                  shared
+                  cursor={{ stroke: "#ccc", strokeDasharray: "3 3" }}
+                  content={(props: any) => {
+                    if (!props.active) return null;
+                    let sec: number | null = null;
+                    if (typeof props.label === "number") sec = Math.round(props.label);
+                    else if (props.payload?.[0]?.payload?.second != null) {
+                      sec = props.payload[0].payload.second;
+                    }
+                    if (sec == null || sec < 1 || sec > duration) return null;
+                    const d = chartData[sec - 1];
+                    if (!d) return null;
+                    return (
+                      <div className="bg-white border border-neutral-200 rounded-lg shadow px-3 py-2 text-sm">
+                        <div className="text-xs text-neutral-400 mb-1 tabular-nums">
+                          {sec}s
+                        </div>
+                        <div>
+                          <span className="text-neutral-500">NS: </span>
+                          <span className="font-semibold tabular-nums">{d.ns ?? "—"}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-500">Score: </span>
+                          <span className="font-semibold tabular-nums">{d.score ?? "—"}</span>
+                        </div>
+                        <div>
+                          <span className="text-red-600">Even pace: </span>
+                          <span className="font-semibold tabular-nums">{d.even ?? "—"}</span>
+                        </div>
+                        {d.errors != null && (
+                          <div>
+                            <span className="text-red-700">Errors: </span>
+                            <span className="font-semibold tabular-nums">{d.errors}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }}
+                />
                 <Legend verticalAlign="top" height={28} />
                 <Line
+                  yAxisId="ns"
                   type="monotone"
-                  dataKey="solved"
+                  dataKey="ns"
                   stroke="#111"
                   strokeWidth={2}
-                  dot={false}
-                  name="Score"
+                  dot={{ r: 2, fill: "#111", strokeWidth: 0 }}
+                  name="NS"
+                  connectNulls={false}
                 />
                 <Line
+                  yAxisId="ns"
                   type="linear"
                   dataKey="even"
                   stroke="#dc2626"
@@ -241,7 +318,19 @@ export default function Results({
                   dot={false}
                   name="Even pace"
                 />
-              </LineChart>
+                <Line
+                  yAxisId="errors"
+                  dataKey="errors"
+                  stroke="transparent"
+                  strokeWidth={0}
+                  activeDot={false}
+                  dot={ErrorDot}
+                  connectNulls={false}
+                  name="Errors"
+                  legendType="cross"
+                  isAnimationActive={false}
+                />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </section>
@@ -346,24 +435,18 @@ export default function Results({
   );
 }
 
-function ChartTooltip({ active, payload }: any) {
-  if (!active || !payload || !payload.length) return null;
-  const d = payload[0].payload;
+function ErrorDot(props: any) {
+  const { cx, cy, value, index } = props;
+  const key = `e-${index}`;
+  if (value == null || value <= 0 || cx == null || cy == null) {
+    return <g key={key} />;
+  }
+  const size = 5;
   return (
-    <div className="bg-white border border-neutral-200 rounded-lg shadow px-3 py-2 text-sm">
-      <div>
-        <span className="text-neutral-500">Score: </span>
-        <span className="font-semibold tabular-nums">{Math.round(d.solved)}</span>
-      </div>
-      <div>
-        <span className="text-red-600">Even pace: </span>
-        <span className="font-semibold tabular-nums">{Math.round(d.even)}</span>
-      </div>
-      <div>
-        <span className="text-neutral-500">NS: </span>
-        <span className="font-semibold tabular-nums">{d.ns}</span>
-      </div>
-    </div>
+    <g key={key} stroke="#b91c1c" strokeWidth={2} strokeLinecap="round">
+      <line x1={cx - size} y1={cy - size} x2={cx + size} y2={cy + size} />
+      <line x1={cx - size} y1={cy + size} x2={cx + size} y2={cy - size} />
+    </g>
   );
 }
 
