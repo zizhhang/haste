@@ -89,7 +89,7 @@ export default function Home({
           </span>
         </div>
         <p className="text-neutral-500 mb-8 ml-1 text-sm">
-          A mental arithmetic game by Zizhou
+          A mental arithmetic game by Lyrisu
         </p>
 
         <div className="space-y-3">
