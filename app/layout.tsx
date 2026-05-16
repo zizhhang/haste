@@ -4,7 +4,7 @@ import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
   title: "Haste",
-  description: "A mental arithmetic game by Lyrisu",
+  description: "A mental arithmetic game",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

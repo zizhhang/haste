@@ -77,6 +77,25 @@ export default function Home({
     setDurationText(String(n));
   };
 
+  const DURATION_PRESETS = [15, 30, 60, 120] as const;
+  type DurationChoice = (typeof DURATION_PRESETS)[number] | "custom";
+  const [customDuration, setCustomDuration] = useState(
+    !(DURATION_PRESETS as readonly number[]).includes(settings.durationSec),
+  );
+  const durationChoice: DurationChoice = customDuration
+    ? "custom"
+    : (settings.durationSec as DurationChoice);
+  const setDurationChoice = (c: DurationChoice) => {
+    if (c === "custom") {
+      setCustomDuration(true);
+      setDurationText(String(settings.durationSec));
+      return;
+    }
+    setCustomDuration(false);
+    setSettings({ ...settings, durationSec: c });
+    setDurationText(String(c));
+  };
+
   return (
     <main className="min-h-screen flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-2xl">
@@ -89,8 +108,61 @@ export default function Home({
           </span>
         </div>
         <p className="text-neutral-500 mb-8 ml-1 text-sm">
-          A mental arithmetic game by Lyrisu
+          A mental arithmetic game
         </p>
+
+        <div className="card p-4 mb-4 space-y-3 text-sm">
+          <div className="flex items-center gap-3">
+            <span className="font-medium text-neutral-700 w-20 shrink-0">Time</span>
+            <div className="flex-1">
+              <Pills
+                value={String(durationChoice)}
+                onChange={(v) =>
+                  setDurationChoice(v === "custom" ? "custom" : (Number(v) as DurationChoice))
+                }
+                options={[
+                  ...DURATION_PRESETS.map((n) => [String(n), `${n}s`] as [string, string]),
+                  ["custom", "Custom"] as [string, string],
+                ]}
+              />
+            </div>
+            {durationChoice === "custom" && (
+              <label className="flex items-center gap-1.5 text-neutral-700 shrink-0">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={durationText}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (/^\d*$/.test(v)) setDurationText(v);
+                  }}
+                  onBlur={commitDuration}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                  className="input-clean w-20 text-center tabular-nums"
+                  autoFocus
+                />
+                s
+              </label>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="font-medium text-neutral-700 w-20 shrink-0">Difficulty</span>
+            <div className="flex-1">
+              <Pills
+                value={settings.difficulty}
+                onChange={(v) => setDifficulty(v as Difficulty)}
+                options={[
+                  ["easy", "Easy"],
+                  ["normal", "Normal"],
+                  ["hard", "Hard"],
+                  ["custom", "Custom"],
+                ]}
+              />
+            </div>
+          </div>
+        </div>
 
         <div className="space-y-3">
           {(Object.keys(settings.ops) as Op[]).map((op) => {
@@ -134,25 +206,6 @@ export default function Home({
         </div>
 
         <div className="flex flex-wrap items-center gap-3 mt-6">
-          <label className="text-sm flex items-center gap-2 text-neutral-700">
-            Duration
-            <input
-              type="text"
-              inputMode="numeric"
-              value={durationText}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (/^\d*$/.test(v)) setDurationText(v);
-              }}
-              onBlur={commitDuration}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-              }}
-              className="input-clean w-20 text-center tabular-nums"
-            />
-            s
-          </label>
-
           <button
             onClick={() => {
               commitDuration();
@@ -162,17 +215,6 @@ export default function Home({
           >
             Start
           </button>
-
-          <select
-            value={settings.difficulty}
-            onChange={(e) => setDifficulty(e.target.value as Difficulty)}
-            className="input-clean font-medium text-sm cursor-pointer pr-8"
-          >
-            <option value="easy">Easy</option>
-            <option value="normal">Normal</option>
-            <option value="hard">Hard</option>
-            {settings.difficulty === "custom" && <option value="custom">Custom</option>}
-          </select>
 
           <button
             onClick={() => setShowUi((s) => !s)}
@@ -312,7 +354,7 @@ function Pills<T extends string>({
   onChange,
   options,
 }: {
-  label: string;
+  label?: string;
   value: T;
   onChange: (v: T) => void;
   options: [T, string][];
@@ -321,8 +363,11 @@ function Pills<T extends string>({
   const widthPct = 100 / options.length;
   return (
     <div>
-      <div className="font-medium mb-1">{label}</div>
-      <div className="relative grid grid-cols-3 bg-neutral-200/70 rounded-xl p-1 shadow-inner">
+      {label && <div className="font-medium mb-1">{label}</div>}
+      <div
+        className="relative grid bg-neutral-200/70 rounded-xl p-1 shadow-inner"
+        style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+      >
         <div
           className="absolute top-1 bottom-1 rounded-lg bg-neutral-900 transition-all duration-300 ease-out shadow"
           style={{ width: `calc(${widthPct}% - 8px)`, left: `calc(${idx * widthPct}% + 4px)` }}

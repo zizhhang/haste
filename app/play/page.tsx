@@ -2,16 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Home from "@/components/Home";
+import Game from "@/components/Game";
 import { DEFAULT_SETTINGS, DEFAULT_UI, GameSettings, UiSettings } from "@/lib/types";
-import {
-  loadGameSettings,
-  loadUiSettings,
-  saveGameSettings,
-  saveUiSettings,
-} from "@/lib/storage";
+import { loadGameSettings, loadUiSettings, saveResult } from "@/lib/storage";
 
-export default function HomePage() {
+export default function PlayPage() {
   const router = useRouter();
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
   const [ui, setUi] = useState<UiSettings>(DEFAULT_UI);
@@ -23,26 +18,24 @@ export default function HomePage() {
     setHydrated(true);
   }, []);
 
-  useEffect(() => {
-    if (hydrated) saveGameSettings(settings);
-  }, [settings, hydrated]);
-  useEffect(() => {
-    if (hydrated) saveUiSettings(ui);
-  }, [ui, hydrated]);
-
-  useEffect(() => {
-    router.prefetch("/play");
-  }, [router]);
-
   if (!hydrated) return null;
 
   return (
-    <Home
+    <Game
       settings={settings}
-      setSettings={setSettings}
       ui={ui}
-      setUi={setUi}
-      onStart={() => router.push("/play")}
+      onFinish={(problems, session) => {
+        saveResult({
+          problems,
+          settings,
+          session,
+          finishedAt: Date.now(),
+        });
+        // replace so browser-back from /results lands on Home, not a
+        // mid-game /play that would auto-restart.
+        router.replace("/results");
+      }}
+      onExitHome={() => router.push("/")}
     />
   );
 }

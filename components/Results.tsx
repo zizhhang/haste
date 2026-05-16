@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { toBlob } from "html-to-image";
 import { GameSettings, Op, SessionStats, SolvedProblem } from "@/lib/types";
 import {
   accuracy,
@@ -32,15 +33,28 @@ export default function Results({
   problems,
   settings,
   session,
+  finishedAt: finishedAtMs,
   onHome,
   onRestart,
 }: {
   problems: SolvedProblem[];
   settings: GameSettings;
   session: SessionStats;
+  finishedAt: number;
   onHome: () => void;
   onRestart: () => void;
 }) {
+  const finishedAt = new Date(finishedAtMs);
+  const stampDate = finishedAt.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  const stampTime = finishedAt.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
   const overallAcc =
     session.totalAttempts > 0 ? session.correctAttempts / session.totalAttempts : null;
   const duration = settings.durationSec;
@@ -141,6 +155,60 @@ export default function Results({
   const minT = times.length ? Math.min(...times) : 0;
   const maxT = times.length ? Math.max(...times) : 0;
 
+  const shotRef = useRef<HTMLDivElement | null>(null);
+  const [toast, setToast] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
+  const [shooting, setShooting] = useState(false);
+
+  const handleScreenshot = async () => {
+    const node = shotRef.current;
+    if (!node || shooting) return;
+    setShooting(true);
+    node.classList.add("shot-mode");
+    try {
+      // Allow the browser a frame to apply .shot-mode style overrides
+      // before we measure & rasterise.
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      const rect = node.getBoundingClientRect();
+      // Measure to the last child's bottom so the trailing card margin
+      // doesn't add empty space at the bottom of the capture, without
+      // having to mutate the live layout.
+      const last = node.lastElementChild as HTMLElement | null;
+      const bottom = last ? last.getBoundingClientRect().bottom : rect.bottom;
+      const opts = {
+        pixelRatio: 2,
+        cacheBust: true,
+        width: Math.ceil(rect.width),
+        height: Math.ceil(bottom - rect.top),
+        style: { transform: "none", margin: "0" },
+      } as const;
+      // First pass primes Recharts / lazy styles; some elements render
+      // blank on the very first call. The second pass is the real capture.
+      await toBlob(node, opts);
+      await new Promise((r) => setTimeout(r, 50));
+      const blob = await toBlob(node, opts);
+      if (!blob) throw new Error("Failed to render image");
+      if (
+        typeof ClipboardItem === "undefined" ||
+        !navigator.clipboard?.write
+      ) {
+        throw new Error("Clipboard images not supported in this browser");
+      }
+      await navigator.clipboard.write([
+        new ClipboardItem({ [blob.type]: blob }),
+      ]);
+      setToast({ kind: "ok", msg: "Screenshot copied to clipboard" });
+    } catch (e: any) {
+      setToast({
+        kind: "err",
+        msg: e?.message ?? "Could not copy screenshot",
+      });
+    } finally {
+      node.classList.remove("shot-mode");
+      setShooting(false);
+      setTimeout(() => setToast(null), 2500);
+    }
+  };
+
   const xTicks = (() => {
     const step = duration <= 30 ? 5 : duration <= 90 ? 10 : 15;
     const out: number[] = [];
@@ -161,12 +229,21 @@ export default function Results({
             >
               <HomeIcon /> Home
             </button>
+            <button
+              onClick={handleScreenshot}
+              className="btn-ghost"
+              disabled={shooting}
+              aria-label="Copy screenshot of results to clipboard"
+            >
+              <CameraIcon /> {shooting ? "Capturing…" : "Screenshot"}
+            </button>
             <button onClick={onRestart} className="btn-primary">
               <RetryIcon /> Restart
             </button>
           </div>
         </div>
 
+        <div ref={shotRef}>
         <section className="card p-6 mb-6 flex items-end justify-between gap-6">
           <div>
             <div className="eyebrow">Final score</div>
@@ -212,6 +289,9 @@ export default function Results({
             </div>
             <div className="text-xs text-neutral-400 mt-1">
               {session.correctAttempts}/{session.totalAttempts} attempts
+            </div>
+            <div className="text-[11px] text-neutral-400 mt-2 tabular-nums">
+              {stampDate} · {stampTime}
             </div>
           </div>
         </section>
@@ -374,6 +454,7 @@ export default function Results({
             })}
           </div>
         </section>
+        </div>
 
         {hasBreakdown && (
           <section className="card p-6 mb-6 space-y-6">
@@ -431,6 +512,20 @@ export default function Results({
           </button>
         </div>
       </div>
+
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg shadow-lg text-sm font-medium z-50 border ${
+            toast.kind === "ok"
+              ? "bg-neutral-900 text-white border-neutral-900"
+              : "bg-red-50 text-red-700 border-red-200"
+          }`}
+        >
+          {toast.msg}
+        </div>
+      )}
     </main>
   );
 }
@@ -558,6 +653,15 @@ function HomeIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 12 12 3l9 9" />
       <path d="M5 10v10h14V10" />
+    </svg>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 8h3l2-3h8l2 3h3v12H3z" />
+      <circle cx="12" cy="13" r="4" />
     </svg>
   );
 }
